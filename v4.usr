@@ -1,0 +1,418 @@
+c-----------------------------------------------------------------------
+      subroutine uservp(i,j,k,eg) ! set variable properties
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer i,j,k,e,eg
+     
+c     e = gllel(eg)
+
+      udiff  = 0.0
+      utrans = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(i,j,k,eg) ! set acceleration term
+c
+c     Note: this is an acceleration term, NOT a force!
+c     Thus, ffx will subsequently be multiplied by rho(x,t).
+c
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer i,j,k,e,eg
+
+c     e = gllel(eg)
+
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(i,j,k,eg) ! set source term
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer i,j,k,e,eg
+
+c     e = gllel(eg)
+
+      qvol   = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc(i,j,k,f,eg) ! set up boundary conditions
+c     NOTE ::: This routine MAY NOT be called by every process
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer i,j,k,f,e,eg
+
+      common /inflow/ uin(lx1,ly1,lz1,lelt)
+     $              , vin(lx1,ly1,lz1,lelt)
+     $              , win(lx1,ly1,lz1,lelt)
+     $              , U_inlet
+
+      e    = gllel(eg)
+      ux   = uin(i,j,k,e)
+      uy   = vin(i,j,k,e)
+      uz   = win(i,j,k,e)
+      temp = 0.0
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(i,j,k,eg) ! set up initial conditions
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+
+      ux   = 0.0
+      uy   = 0.0
+      uz   = 0.0
+      temp = eg
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userqtl ! Set thermal divergence
+
+      call userqtl_scig
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat   ! This routine to modify element vertices
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /inflow/ uin(lx1,ly1,lz1,lelt)
+     $              , vin(lx1,ly1,lz1,lelt)
+     $              , win(lx1,ly1,lz1,lelt)
+     $              , U_inlet
+
+      integer e,eg,exy,ex,ey,ez,f
+
+      parameter (lela=2200) ! Number of elements in artery
+      common /scrns/ xyz4(4,4,4,3,lela)
+
+      integer        glnode
+      common /scrmg/ glnode(lelg)
+
+      parameter (lw=lx1*ly1*lz1*lelt)
+      common /scruz/ w(lw)
+
+      n     = lx1*ly1*lz1*nelt
+      nface = 2*ldim
+
+      ltup = nelgv
+      ntup = 0
+
+      if (nid.eq.0) then
+
+       open (unit=31,file='./xyzout')
+
+       do i=1,nelgv
+          glnode(i)=gllnid(i) ! Convert to 32 bit and save from overwrite
+       enddo
+
+       do ez=1,99
+       do k=1,4
+         do exy=1,20
+            eg = exy + 20*(ez-1)
+            do j=1,4
+            do i=1,4
+               read(31,*) xyz4(i,j,k,1,eg)
+     $                   ,xyz4(i,j,k,2,eg)
+     $                   ,xyz4(i,j,k,3,eg)
+            enddo
+            enddo
+         enddo
+       enddo
+       enddo
+       ntup=nelgv
+       close(31)
+
+      endif
+
+      m   = 4*4*4*3  ! Number of entries in each tuple
+      key = 1        ! Which column of glnode() holds processor id
+      call fgslib_crystal_tuple_transfer
+     &     (cr_h,ntup,ltup,glnode,1,w,0,xyz4,m,key)
+
+      do e=1,nelv
+        call map_m_to_n(xm1(1,1,1,e),lx1,xyz4(1,1,1,1,e),4,if3d,w,lw)
+        call map_m_to_n(ym1(1,1,1,e),lx1,xyz4(1,1,1,2,e),4,if3d,w,lw)
+        call map_m_to_n(zm1(1,1,1,e),lx1,xyz4(1,1,1,3,e),4,if3d,w,lw)
+      enddo
+
+      call geom_reset(2)
+
+c     Assign 'v  ' bc to largest inlet surface
+
+      call rone(w,n)
+      ao = 0.
+      av = 0.
+      do e=1,nelv
+      do f=1,2*ldim
+         if (cbc(f,e,1).eq.'v  ') av=av+facint_v(w,area,f,e)
+         if (cbc(f,e,1).eq.'O  ') ao=ao+facint_v(w,area,f,e)
+      enddo
+      enddo
+      av = glsum(av,1)
+      ao = glsum(ao,1)
+
+      if (ao.gt.av) then ! Swap BCs:  v <--> O
+
+         at = ao
+         ao = av
+         av = at
+
+         do e=1,nelv
+         do f=1,nface
+            if (cbc(f,e,1).eq.'v  ') then
+               cbc(f,e,1)='O  '
+            elseif (cbc(f,e,1).eq.'O  ') then
+               cbc(f,e,1)='v  '
+            endif
+         enddo
+         enddo
+      endif
+
+      diam_inlet  = 2 * sqrt(av/pi)
+      diam_outlet = 2 * sqrt(ao/pi)
+      viscosity   = param(2)
+      U_inlet     = 1.                 ! Q=A*U=constant
+      U_outlet    = (U_inlet*av)/ao    ! Uo = const/Ao
+      Re_inlet  = U_inlet*diam_inlet/viscosity
+      Re_outlet = U_outlet*diam_outlet/viscosity
+
+      Re_target = 1000.
+      U_inlet   = Re_target/Re_inlet   ! Q=A*U=constant
+      U_inlet   = Re_target/Re_outlet  ! Q=A*U=constant
+
+      if (nio.eq.0) then
+         write(6,7) U_inlet,Re_target
+         write(6,8) av,ao,diam_inlet,diam_outlet
+         write(6,9) Re_inlet, Re_outlet,viscosity
+      endif
+    7 format(1p2e12.4,' U_inlet,Target Outlet Reynolds Number')
+    8 format(1p4e12.4,' Inlet/Outlet: Area, D')
+    9 format(1p3e12.4,' Inlet/Outlet: Reynolds Number, visc')
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine get_domain_length(s,xcg,ycg,zcg,vol)
+      include 'SIZE'
+      include 'TOTAL'
+      integer e,eg,exy,ex,ey,ez,f
+
+      real s(100),xcg(100),ycg(100),zcg(100),vol(100)
+      real wk(100)
+
+      nelz=98
+      nely=1 
+      nelx=20 ! Number in each slice
+
+      call rzero(xcg,100)
+      call rzero(ycg,100)
+      call rzero(zcg,100)
+      call rzero(vol,100)
+      
+      lxyz = lx1*ly1*lz1
+      do e=1,nelv
+         eg=lglel(e)
+         call get_exyz(ex,ey,ez,eg,nelx,nely,nelz)
+         xcg(ez)=xcg(ez)+vlsc2(xm1(1,1,1,e),bm1(1,1,1,e),lxyz)
+         ycg(ez)=ycg(ez)+vlsc2(ym1(1,1,1,e),bm1(1,1,1,e),lxyz)
+         zcg(ez)=zcg(ez)+vlsc2(zm1(1,1,1,e),bm1(1,1,1,e),lxyz)
+         vol(ez)=vol(ez)+volel(e)
+      enddo
+      call gop(xcg,wk,'+  ',100) !! Sum over all processors
+      call gop(ycg,wk,'+  ',100)
+      call gop(zcg,wk,'+  ',100)
+      call gop(vol,wk,'+  ',100)
+
+      call invcol2(xcg,vol,98)
+      call invcol2(ycg,vol,98)
+      call invcol2(zcg,vol,98)
+
+
+c      0---1-2--3---4 ... --97--98  ! Arclength
+      
+      s(1)=0
+      do e=2,98
+         ds = (xcg(e)-xcg(e-1))**2
+     $      + (ycg(e)-ycg(e-1))**2
+     $      + (zcg(e)-zcg(e-1))**2
+         ds = sqrt(ds)
+         s(e) = s(e-1) + ds
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+
+      common /inflow/ uin(lx1,ly1,lz1,lelt)
+     $              , vin(lx1,ly1,lz1,lelt)
+     $              , win(lx1,ly1,lz1,lelt)
+     $              , U_inlet
+
+      integer e,f
+
+      common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
+      real m1
+
+      common /mystuff/ s(100),xcg(100),ycg(100),zcg(100),vol(100)
+
+      if (istep.eq.0) call get_domain_length(s,xcg,ycg,zcg,vol)
+
+      arclength = s(98)
+      flow_through_time = arclength / U_inlet
+
+      if (istep.eq.0.and.nio.eq.0) 
+     $    write(6,22) arclength,flow_through_time,U_inlet
+   22 format(1p3e14.5,' arclength, flow-through-time')
+
+      p1= 0.1 ! Use these vales --> 10% of flow through time
+      p2= 0.2
+
+c     p1= 0.01 ! just for quick trial
+c     p2= 0.02
+
+      if (time.gt.p1*flow_through_time) call avg_all ! Collect runtime avg
+
+      if (time.gt.p2*flow_through_time) then
+         call process_pressure(s,xcg,ycg,zcg,vol)
+         call exitti('quit userchk$',istep)
+      endif
+
+      rq  = 2.
+      call turb_outflow(d,m1,rq,U_inlet)
+
+
+      n     = lx1*ly1*lz1*nelt
+      nface = 2*ldim
+
+      if (istep.eq.0) then
+         call opzero(uin,vin,win)
+         do e=1,nelv
+         do f=1,nface
+            if (cbc(f,e,1).eq.'v  ') then ! inflow
+               call facind2 (js1,jf1,jskip1,js2,jf2,jskip2,f)
+               k = 0
+               do j2=js2,jf2,jskip2
+               do j1=js1,jf1,jskip1
+                  k = k+1
+                  uin(j1,j2,1,e) = -unx(k,1,f,e)*U_inlet
+                  vin(j1,j2,1,e) = -uny(k,1,f,e)*U_inlet
+                  win(j1,j2,1,e) = -unz(k,1,f,e)*U_inlet
+               enddo
+               enddo
+            endif
+         enddo
+         enddo
+      endif
+
+      call compute_cfl(cfl,vx,vy,vz,dt)
+      call copy(t,cflf,n)
+c     call lambda2(t)
+      ifto    = .true.  ! Dump lambda2 in the temperature array, t
+c     ifreguo = .true.  ! Output on a refined uniform mesh
+
+      umn=glmin(vx,n)
+      vmn=glmin(vy,n)
+      wmn=glmin(vz,n)
+      umx=glmax(vx,n)
+      vmx=glmax(vy,n)
+      wmx=glmax(vz,n)
+
+      if (nio.eq.0) write(6,1) istep,time,umn,umx,vmn,vmx,wmn,wmx
+    1 format(i7,1p7e12.4,' umax')
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine process_pressure(s,xcg,ycg,zcg,vol)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'AVG'
+
+      integer e,eg,exy,ex,ey,ez,f
+
+      real s(100),xcg(100),ycg(100),zcg(100),vol(100)
+      real wk(100),pbar(100),rbar(100)
+
+      nelz=98
+      nely=1 
+      nelx=20 ! Number in each slice
+
+      call rzero(pbar,100)
+      call rzero(rbar,100)
+      
+      lxyz = lx1*ly1*lz1
+      do e=1,nelv
+         eg=lglel(e)
+         call get_exyz(ex,ey,ez,eg,nelx,nely,nelz)
+         pbar(ez)=pbar(ez)+vlsc2(pavg(1,1,1,e),bm1(1,1,1,e),lxyz)
+         rbar(ez)=rbar(ez)+vlsc2(prms(1,1,1,e),bm1(1,1,1,e),lxyz)
+      enddo
+      call gop(pbar,wk,'+  ',100) !! Sum over all processors
+      call gop(rbar,wk,'+  ',100)
+
+      call invcol2(pbar,vol,98)
+      call invcol2(rbar,vol,98)
+
+c
+c     Suppose p(t) = pbar + p'(t), then
+c
+c     Currently, prms = int ( p^2 ) dV = int (pavg+p')^2 dV
+c                pavg = int ( p   ) dV
+c                
+c                prms = prms - pavg^2
+c                prms = sqrt(prms) ---> sqrt ( int (p'p') dV )
+
+      do i=1,98
+         rbar(i) = sqrt(rbar(i)-pbar(i)*pbar(i))
+      enddo
+
+      if (nio.eq.0) then
+         open(unit=43,file='prms.dat')
+         do i=1,98
+           write(43,20) i,s(i),xcg(i),ycg(i),zcg(i),pbar(i),rbar(i)
+         enddo
+   20    format(i4,1p6e14.5)
+         close(43)
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
