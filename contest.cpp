@@ -8,8 +8,6 @@
     const int CELL_NUM = 320;
     const int CENTER_INDEX = 256;
     const int SECTION_NUM = 99 * (4 - 1) + 1; // = 298
-    const int XYZVEC_STARTNUM = 4;
-    const int POINT_SIZE = 3;
 
     Eigen::Vector3d inlet = read_inlet(inlname);
 
@@ -45,7 +43,7 @@
     int flow_direction = (dis1 >= dis2) ? -1 : 1;
 
     // Iterating over rows in indat
-    for (int enumerate_i = 0; enumerate_i < std::min(9999999,itl); ++enumerate_i) {
+    for (int enumerate_i = 0; enumerate_i < std::min(99999999,itl); ++enumerate_i) {
         if (enumerate_i % 9999 == 0) {
             std::cout << enumerate_i << " /" << itl << " :" << (std::clock() - stime) / (double)CLOCKS_PER_SEC << " sec" << std::endl;
         }
@@ -316,8 +314,7 @@
         Eigen::Vector3d groundvecnormal = groundvec.normalized();
 
         // Retrieve xyzvec
-        Eigen::VectorXd xyzvec = indat.row(enumerate_i).segment(XYZVEC_STARTNUM, POINT_SIZE);
-//        std::cout << "xyzvec: " << xyzvec.transpose() << std::endl;
+        Eigen::VectorXd xyzvec = indat.row(enumerate_i).segment(4, 3);
 
         // Compute rotation matrix
         Eigen::Matrix3d mat = rotation_matrix_from_vectors(groundvecnormal);
@@ -350,7 +347,7 @@
 //        std::cout << elapsed.count() << " seconds: newdat done. saving..\n";
         std::cout << (std::clock() - stime) / (double)CLOCKS_PER_SEC << " seconds: newdat done. saving.." << std::endl;
         // Save newdat
-        save_matrix(datname + "_new_june21", newdat);
+        save_matrix(datname + "_new", newdat);
 
 //        etime = std::chrono::high_resolution_clock::now();
 //        elapsed = etime - stime;
@@ -377,7 +374,7 @@
         std::cout << (std::clock() - stime) / (double)CLOCKS_PER_SEC << " seconds: sorted. now saving.." << std::endl;
 
         // Save sorted_newdat
-        save_matrix(datname + "_sorted_june21", sorted_newdat);
+        save_matrix(datname + "_sorted", sorted_newdat);
 
 //        etime = std::chrono::high_resolution_clock::now();
 //        elapsed = etime - stime;
